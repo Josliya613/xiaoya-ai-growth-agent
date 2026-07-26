@@ -49,6 +49,52 @@ const fallback = (agent: string) => ({
   action: "将本轮结构化产物发送给下一个 Agent，继续完成内容闭环。",
 });
 
+const plannerFallback = (input: string) => {
+  const topic = input
+    .replace(/^.*?账号方向[：:]\s*/, "")
+    .replace(/[。；;].*$/s, "")
+    .trim()
+    .slice(0, 48) || "个人成长";
+  const ideas = [
+    ["定位破冰", `${topic}新人最容易忽略的 3 件事`, "反常识清单，快速建立专业感"],
+    ["真实体验", `我体验${topic}一周后，最意外的发现`, "用具体场景和细节建立信任"],
+    ["实用攻略", `${topic}入门路线：从 0 到能独立上手`, "可收藏的步骤型内容"],
+    ["避坑复盘", `做${topic}之前，我希望有人提醒我的坑`, "失败细节带动评论讨论"],
+    ["工具清单", `${topic}高频使用的 5 个工具与模板`, "工具对比提升收藏率"],
+    ["观点讨论", `${topic}真的适合所有人吗？`, "用边界条件制造高质量互动"],
+    ["系列收口", `我的${topic}7天实践复盘：哪些值得继续`, "用数据与下一期预告沉淀关注"],
+  ];
+  const weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+  const colors = ["定位", "故事", "干货", "复盘", "清单", "观点", "总结"];
+  return {
+    strategy: {
+      positioning: `围绕「${topic}」输出真实体验、实用攻略与可验证复盘`,
+      audience: `对「${topic}」感兴趣、正在入门或希望提升效率的用户`,
+      mix: "40% 实用干货 · 30% 真实体验 · 20% 观点互动 · 10% 系列复盘",
+      goal: "先验证收藏率与评论问题，再迭代下一轮选题",
+    },
+    plans: ideas.map(([category, theme, angle], index) => ({
+      day: index + 1,
+      category: colors[index],
+      theme,
+      angle,
+      hook: index === 0
+        ? `如果你刚开始了解${topic}，先别急着照搬别人的方法。`
+        : `关于${topic}，这件事和我一开始想的完全不一样。`,
+      titles: [
+        theme,
+        `${topic}新手必看｜第 ${index + 1} 天真实记录`,
+        `别再盲目做${topic}了：先看这篇`,
+      ],
+      structure: ["用户痛点", "真实场景", "方法拆解", "行动建议"],
+      cover: `奶油白底色，突出「${topic}」与数字关键词，搭配真实场景图片`,
+      interaction: `你在${topic}上最想解决什么问题？评论区告诉我`,
+      time: `${weekdays[index]} 20:00`,
+      score: 82 + index,
+    })),
+  };
+};
+
 export const Route = createFileRoute("/api/agent")({
   server: {
     handlers: {
@@ -87,23 +133,43 @@ export const Route = createFileRoute("/api/agent")({
         }
 
         const isPlanner = agent === "Content Planner";
-        const response = await fetch(workerEnv.DEEPSEEK_BASE_URL || "https://api.deepseek.com/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${workerEnv.DEEPSEEK_API_KEY}` },
-          body: JSON.stringify({
-            model: workerEnv.DEEPSEEK_MODEL || "deepseek-chat",
-            temperature: 0.55,
-            response_format: { type: "json_object" },
-            messages: [
-              { role: "system", content: `${systemPrompts[agent] || systemPrompts["Content Planner"]}\n${isPlanner ? plannerSchema : outputSchema}` },
-              { role: "user", content: modelInput },
-            ],
-          }),
-        });
-        if (!response.ok) return Response.json({ error: "Model request failed" }, { status: 502 });
-        const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
-        const result = JSON.parse(data.choices?.[0]?.message?.content || "{}");
-        return Response.json({ result, mode: "live" });
+        try {
+          const response = await fetch(workerEnv.DEEPSEEK_BASE_URL || "https://api.deepseek.com/chat/completions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${workerEnv.DEEPSEEK_API_KEY}` },
+            body: JSON.stringify({
+              model: workerEnv.DEEPSEEK_MODEL || "deepseek-chat",
+              temperature: 0.55,
+              max_tokens: isPlanner ? 3600 : 1400,
+              response_format: { type: "json_object" },
+              messages: [
+                { role: "system", content: `${systemPrompts[agent] || systemPrompts["Content Planner"]}\n${isPlanner ? plannerSchema : outputSchema}` },
+                { role: "user", content: modelInput },
+              ],
+            }),
+            signal: AbortSignal.timeout(45000),
+          });
+          if (!response.ok) {
+            const upstream = (await response.text()).slice(0, 500);
+            console.error("DeepSeek request failed", response.status, upstream);
+            if (isPlanner) {
+              return Response.json({ result: plannerFallback(modelInput), mode: "degraded", warning: `DeepSeek 暂时不可用（${response.status}）` });
+            }
+            return Response.json({ result: fallback(agent), mode: "degraded", warning: `DeepSeek 暂时不可用（${response.status}）` });
+          }
+          const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+          const result = JSON.parse(data.choices?.[0]?.message?.content || "{}");
+          if (isPlanner && (!Array.isArray(result.plans) || result.plans.length !== 7)) {
+            throw new Error("Planner returned invalid plan count");
+          }
+          return Response.json({ result, mode: "live" });
+        } catch (error) {
+          console.error("DeepSeek processing error", error instanceof Error ? error.message : error);
+          if (isPlanner) {
+            return Response.json({ result: plannerFallback(modelInput), mode: "degraded", warning: "DeepSeek 响应超时，已启用主题相关的可靠降级方案" });
+          }
+          return Response.json({ result: fallback(agent), mode: "degraded", warning: "DeepSeek 响应异常，已启用可靠降级方案" });
+        }
       },
     },
   },

@@ -103,13 +103,21 @@ function App() {
         body: JSON.stringify({ agent: "Content Planner", input: `账号方向：${topic.trim()}。请生成真实可执行、彼此不重复的 7 天小红书内容计划。` }),
       });
       if (!response.ok) throw new Error("planner failed");
-      const data = await response.json() as { result?: { strategy?: Strategy; plans?: Array<Omit<Plan, "color">> } };
+      const data = await response.json() as {
+        result?: { strategy?: Strategy; plans?: Array<Omit<Plan, "color">> };
+        mode?: "live" | "degraded" | "demo";
+        warning?: string;
+      };
       if (!data.result?.plans || data.result.plans.length !== 7) throw new Error("invalid plan");
       const colors = ["#FFD9DE", "#FFEAC7", "#DDF4E9", "#E3E4FF", "#D7F0F4", "#FFF0C9", "#FFDCEB"];
       setGeneratedPlans(data.result.plans.map((plan, index) => ({ ...plan, day: index + 1, color: colors[index] })));
       if (data.result.strategy) setStrategy(data.result.strategy);
       setSelected({ ...data.result.plans[0], day: 1, color: colors[0] });
       setView("plan");
+      if (data.mode === "degraded") {
+        setToast(data.warning || "模型响应超时，已生成主题相关的降级计划");
+        setTimeout(() => setToast(""), 3600);
+      }
     } catch {
       setToast("生成失败，请稍后重试");
       setTimeout(() => setToast(""), 1800);
