@@ -366,6 +366,76 @@ const agentDemoResults = [
   },
 ];
 
+const dimensionColors: Record<string, string> = {
+  userValue: "#FF5C6C", emotion: "#F5A623", density: "#29A37A", interaction: "#7B6CF6", platformFit: "#337BEA",
+};
+
+const agentInputMeta = [
+  { title: "粘贴公开账号链接或账号描述", hint: "识别定位、目标用户、内容资产与断层", button: "开始受众诊断" },
+  { title: "输入账号方向与观察到的趋势", hint: "判断时效窗口、竞争度与账号适配，不把推断冒充热榜", button: "扫描趋势机会" },
+  { title: "输入增长目标与内容约束", hint: "编排拉新、信任、收藏、互动四类内容任务", button: "生成 7 天组合" },
+  { title: "输入选题 Brief 与真实素材", hint: "生成标题、Hook、正文、封面与互动设计", button: "生成内容初稿" },
+  { title: "粘贴待评估的标题与正文", hint: "按五个维度独立评分，每维提供证据、扣分点与建议", button: "运行五维评估" },
+  { title: "粘贴原稿与评估反馈", hint: "逐维修复内容，展示修改前后与停止条件", button: "执行定向优化" },
+];
+
+const agentTraceSteps = [
+  ["读取公开样本与用户输入", "区分事实与策略推断", "聚类受众需求与场景", "输出画像与下游上下文"],
+  ["读取账号定位与受众", "识别趋势信号与时效", "评估竞争度和适配度", "输出机会雷达与避坑项"],
+  ["读取受众与趋势上下文", "分配四类内容任务", "检查 7 天选题重复度", "输出发布节奏与内容组合"],
+  ["读取 Brief 与真实素材", "设计标题与黄金 Hook", "完成正文和封面策略", "执行真实性检查"],
+  ["锁定五维评分标尺", "逐维引用内容证据", "校验五维之和", "输出优先级优化动作"],
+  ["读取低分维度与建议", "逐项生成修改前后", "检查真实性与平台风险", "判断是否达到停止条件"],
+];
+
+function AgentResultView({ active, result }: { active: number; result: any }) {
+  if (active === 0) return <div className="audience-output">
+    <div className="positioning-card"><span>POSITIONING</span><h3>{result.positioning?.recommended}</h3><p>{result.positioning?.reason}</p><small>当前：{result.positioning?.current}</small></div>
+    <div className="persona-grid">{(result.personas || []).map((p: any) => <div className="persona-card" key={p.name}><b>{p.name}</b><span>{p.profile}</span><dl><dt>痛点</dt><dd>{p.pain}</dd><dt>动机</dt><dd>{p.motivation}</dd><dt>内容需求</dt><dd>{p.contentNeed}</dd></dl></div>)}</div>
+    <div className="output-columns"><div><b>可利用内容资产</b>{(result.contentAssets || []).map((x: string) => <p key={x}>✓ {x}</p>)}</div><div><b>内容断层</b>{(result.gaps || []).map((x: string) => <p key={x}>△ {x}</p>)}</div></div>
+    <div className="opportunity-list">{(result.opportunities || []).map((x: any) => <div key={x.opportunity}><span>{x.priority}</span><b>{x.opportunity}</b><p>{x.why}</p></div>)}</div>
+  </div>;
+
+  if (active === 1) return <div className="trend-output">
+    <div className="data-notice"><Target size={15} /><span>{result.dataNotice}</span></div>
+    <div className="trend-radar">{(result.trends || []).map((t: any) => <div className="trend-row" key={t.topic}>
+      <div><b>{t.topic}</b><span>{t.window} · 竞争度 {t.competition}</span></div>
+      <p>{t.signal}</p><div className="fit-meter"><i style={{ width: `${t.fit || 0}%` }} /><b>{t.fit}</b></div><small>{t.angle}</small>
+    </div>)}</div>
+    <div className="avoid-box"><b>不建议盲追</b>{(result.avoid || []).map((x: string) => <p key={x}>{x}</p>)}</div>
+  </div>;
+
+  if (active === 2) return <div className="planner-output">
+    {result.strategy && <div className="mini-strategy"><div><span>账号定位</span><b>{result.strategy.positioning}</b></div><div><span>内容配比</span><b>{result.strategy.mix}</b></div><div><span>增长目标</span><b>{result.strategy.goal}</b></div></div>}
+    <div className="mini-plan-list">{(result.plans || []).map((p: any) => <div key={p.day}><span>DAY {p.day}</span><div><b>{p.theme}</b><p>{p.category} · {p.angle}</p></div><small>{p.time}</small></div>)}</div>
+  </div>;
+
+  if (active === 3) return <div className="writer-output">
+    <div className="title-variants">{(result.titles || []).map((t: any) => <div key={t.style}><span>{t.style}</span><b>{t.text}</b></div>)}</div>
+    <div className="hook-card"><span>GOLDEN 3-SECOND HOOK</span><h3>“{result.hook}”</h3></div>
+    <div className="writing-grid"><div><b>笔记结构</b>{(result.structure || []).map((s: any) => <p key={s.section}><span>{s.section}</span>{s.content}</p>)}</div><div className="draft-body"><b>完整正文</b><p>{result.body}</p></div></div>
+    <div className="creative-footer"><div><b>封面</b><p>{result.cover?.headline} · {result.cover?.visual}</p></div><div><b>互动</b><p>{result.interaction}</p></div></div>
+    {(result.truthCheck || []).length > 0 && <div className="truth-check"><b>发布前真实性确认</b>{result.truthCheck.map((x: string) => <span key={x}>□ {x}</span>)}</div>}
+  </div>;
+
+  if (active === 4) return <div className="evaluator-output">
+    <div className="eval-summary"><div className="eval-ring" style={{ "--score": `${(result.totalScore || 0) * 3.6}deg` } as any}><div><strong>{result.totalScore}</strong><span>/100</span></div></div><div><span>发布判断</span><h3>{result.verdict}</h3><p>{result.risk}</p></div></div>
+    <div className="dimension-list">{(result.dimensions || []).map((d: any) => <div className="dimension-card" key={d.key}>
+      <div className="dimension-top"><b>{d.name}</b><strong style={{ color: dimensionColors[d.key] }}>{d.score}<small>/20</small></strong></div>
+      <div className="dimension-bar"><i style={{ width: `${Math.min(100, (d.score || 0) * 5)}%`, background: dimensionColors[d.key] }} /></div>
+      <dl><dt>评分证据</dt><dd>{d.evidence}</dd><dt>扣分原因</dt><dd>{d.deduction}</dd><dt>针对性建议</dt><dd>{d.suggestion}</dd></dl>
+    </div>)}</div>
+    <div className="priority-actions"><b>优先级优化动作</b>{(result.priorityActions || []).map((x: string, i: number) => <p key={x}><span>0{i + 1}</span>{x}</p>)}</div>
+  </div>;
+
+  return <div className="optimizer-output">
+    <div className="score-lift"><div><span>优化前</span><b>{result.beforeScore}</b></div><ArrowRight /><div><span>优化后</span><b>{result.afterScore}</b></div><strong>+{Math.max(0, (result.afterScore || 0) - (result.beforeScore || 0))}</strong></div>
+    <div className="change-list">{(result.changes || []).map((c: any) => <div key={c.dimension}><span>{c.dimension}</span><div><small>BEFORE</small><p>{c.before}</p></div><ArrowRight /><div><small>AFTER</small><p>{c.after}</p></div><b>{c.reason}</b></div>)}</div>
+    <div className="optimized-copy"><span>OPTIMIZED VERSION</span><h3>{result.optimized?.title}</h3><blockquote>{result.optimized?.hook}</blockquote><p>{result.optimized?.body}</p><b>{result.optimized?.interaction}</b></div>
+    <div className="stop-condition"><Check size={15} /><div><b>停止条件</b><p>{result.stopCondition}</p></div><div><b>下一步验证</b><p>{result.nextTest}</p></div></div>
+  </div>;
+}
+
 function AgentWorkspace({ active, setActive, back, copy }: { active: number; setActive: (n: number) => void; back: () => void; copy: (t: string) => void }) {
   const agent = workflow[active];
   const Icon = agent.icon;
@@ -382,9 +452,9 @@ function AgentWorkspace({ active, setActive, back, copy }: { active: number; set
       const input = active === 0 ? accountUrl : brief;
       const response = await fetch("/api/agent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agent: agent.name, input }) });
       const data = await response.json() as { result?: unknown };
-      setResult(data.result || agentDemoResults[active]);
+      setResult(data.result || null);
     } catch {
-      setResult(agentDemoResults[active]);
+      setResult(null);
     } finally {
       clearInterval(timer); setRunStep(4); setRunning(false);
     }
@@ -421,20 +491,19 @@ function AgentWorkspace({ active, setActive, back, copy }: { active: number; set
             <button className="studio-run" onClick={run} disabled={running}>{running ? <RefreshCw className="spin" /> : <WandSparkles />}生成内容初稿</button>
           </div>
         </div> : <div className="agent-input-card">
-          <div className="input-card-title"><FileText /><div><b>输入本次任务 Brief</b><span>上游 Agent 产物会自动作为上下文，无需重复粘贴</span></div></div>
+          <div className="input-card-title"><FileText /><div><b>{agentInputMeta[active].title}</b><span>{agentInputMeta[active].hint}</span></div></div>
           <textarea value={brief} onChange={(e) => setBrief(e.target.value)} />
-          <button className="wide-run" onClick={run} disabled={running}>{running ? <RefreshCw className="spin" /> : <Sparkles />}运行 {agent.name}</button>
+          <button className="wide-run" onClick={run} disabled={running}>{running ? <RefreshCw className="spin" /> : <Sparkles />}{agentInputMeta[active].button}</button>
         </div>}
 
         <div className="trace-card">
           <div className="trace-head"><div><Bot />执行轨迹</div><span>可观测</span></div>
-          {["读取输入与共享上下文", "调用公开信息分析工具", "按 JSON Schema 生成结果", "质量检查与风险过滤"].map((x, i) => <div className={`trace-step ${running && i <= runStep ? "doing" : result || (running && i < runStep) ? "done" : ""}`} key={x}><span>{result || (running && i < runStep) ? <Check size={12} /> : i + 1}</span><b>{x}</b><small>{result ? `${180 + i * 73} ms` : running && i === runStep ? "运行中…" : "等待"}</small></div>)}
+          {agentTraceSteps[active].map((x, i) => <div className={`trace-step ${running && i <= runStep ? "doing" : result || (running && i < runStep) ? "done" : ""}`} key={x}><span>{result || (running && i < runStep) ? <Check size={12} /> : i + 1}</span><b>{x}</b><small>{result ? `${180 + i * 73} ms` : running && i === runStep ? "运行中…" : "等待"}</small></div>)}
         </div>
 
         <AnimatePresence>{result && <motion.div className="agent-result" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
-          <div className="result-head"><div><span>STRUCTURED OUTPUT</span><h2>{result.headline}</h2></div><div className="result-score"><b>{result.score}</b><span>/100</span></div></div>
-          <div className="insight-grid">{result.insights.map(([k, v]: string[]) => <div key={k}><span>{k}</span><p>{v}</p></div>)}</div>
-          <div className="next-action"><Lightbulb /><div><b>Agent 建议</b><p>{result.action}</p></div></div>
+          <div className="result-head"><div><span>{String(result.type || agent.name).toUpperCase()} · JSON SCHEMA OUTPUT</span><h2>{result.headline}</h2></div>{active === 4 && <div className="result-score"><b>{result.totalScore}</b><span>/100</span></div>}</div>
+          <AgentResultView active={active} result={result} />
           <div className="result-actions"><button onClick={() => copy(JSON.stringify(result, null, 2))}><Copy size={15} />复制结果</button><button className="primary" onClick={() => setActive(Math.min(active + 1, 5))}>发送到下一个 Agent <ArrowRight size={15} /></button></div>
         </motion.div>}</AnimatePresence>
       </section>
@@ -483,7 +552,7 @@ function About({ nav }: any) {
       <div><span>02</span><Target /><h3>过程比结果可控</h3><p>每一步展示运行状态与结构化产物，让用户理解 AI 为什么给出这个建议。</p></div>
       <div><span>03</span><RefreshCw /><h3>评估驱动增长闭环</h3><p>用五维评分建立内容质量基线，持续积累“什么内容更有效”的反馈。</p></div>
     </div></section>
-    <section className="interview-card"><div><span>FOR AI PM INTERVIEW</span><h2>这不是一个“套壳 Demo”</h2><p>它是一套可被清晰讲述的 AI 产品方法：场景拆解 → Agent 分工 → Prompt 编排 → 结构化输出 → 评估闭环。</p></div><div className="quote">“我将专业小红书运营团队的工作流拆解为 Audience、Planner、Writer 和 Evaluator 等 Agent，实现从用户洞察到内容优化的生产闭环。”</div></section>
+    <section className="interview-card"><div><span>FOR AI PM INTERVIEW</span><h2>这不是一个“套壳 Demo”</h2><p>它是一套可被清晰讲述的 AI 产品方法：场景拆解 → Agent 分工 → Prompt 编排 → 结构化输出 → 评估闭环。</p></div><div className="quote">“我设计了受众、趋势、规划、写作、评估、优化六大 Agent，定义任务边界、结构化输入输出与上下文传递，并通过五维内容评分生成可执行的定向优化建议。”</div></section>
   </motion.div>;
 }
 
